@@ -72,20 +72,23 @@ class TuyaLockManager:
 
     def create_temporary_password(self, name, start_time_str, end_time_str):
         path = f"/v2.0/cloud/thing/{self.device_id}/shadow/actions"
-        start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
-        end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
-        effective_time = int(start_dt.timestamp())
-        invalid_time = int(end_dt.timestamp())
         
-        # CORREÇÃO APLICADA AQUI: password é "0"
+        # Gerar uma senha aleatória de 6 dígitos
+        password = str(time.time())[-6:]
+
+        # Formato "Raw" para unlock_method_create
+        # Formato: tipo_senha,senha,timestamp_inicio_hex,timestamp_fim_hex,nome_codificado_hex
+        # tipo_senha: 2 para temporária
+        start_ts_hex = hex(int(datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S").timestamp()))[2:]
+        end_ts_hex = hex(int(datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S").timestamp()))[2:]
+        name_hex = name.encode('utf-8').hex()
+        
+        # O formato Raw é uma string de valores separados por vírgula
+        raw_value = f"2,{password},{start_ts_hex},{end_ts_hex},{name_hex}"
+        
         actions_payload = {
-            "code": "temp_password_create",
-            "value": {
-                "name": name,
-                "password": "", 
-                "effective_time": effective_time,
-                "invalid_time": invalid_time
-            }
+            "code": "unlock_method_create",
+            "value": raw_value
         }
         
         body_final = {"actions": [actions_payload]}
@@ -96,9 +99,7 @@ class TuyaLockManager:
         action_result = result.get("actions", [{}])[0]
 
         if action_result.get("success"):
-            value_str = action_result.get("value", "{}")
-            generated_password = json.loads(value_str).get("password", "SENHA_CRIADA_VERIFIQUE_APP")
-            return {"password": generated_password, "name": name, "effective_time": datetime.fromtimestamp(effective_time).isoformat(), "invalid_time": datetime.fromtimestamp(invalid_time).isoformat()}
+            return {"password": password, "name": name, "start_time": start_time_str, "end_time": end_time_str}
         else:
             error_msg = action_result.get("msg", "Erro desconhecido ao criar senha.")
             raise Exception(f"Falha na ação da Tuya: {error_msg}")
