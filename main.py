@@ -11,18 +11,16 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import gunicorn
 
-# Carrega variáveis de ambiente (para desenvolvimento local, se houver .env)
+# Carrega variáveis de ambiente
 load_dotenv()
 
 # --- Configurações Iniciais ---
-# Estas variáveis serão lidas do ambiente do Railway
 CLIENT_ID = os.getenv("TUYA_CLIENT_ID")
 CLIENT_SECRET = os.getenv("TUYA_CLIENT_SECRET")
 DEVICE_ID = os.getenv("TUYA_DEVICE_ID")
-# Região do seu Data Center (Western America)
 API_BASE_URL = "https://openapi.tuyaus.com"
 
-# Força o Python a mostrar os prints imediatamente nos logs do Railway
+# Força o Python a mostrar os prints imediatamente nos logs
 os.environ['PYTHONUNBUFFERED'] = '1'
 
 app = Flask(__name__ )
@@ -38,120 +36,67 @@ class TuyaLockManager:
     def _get_headers(self, path, method, body=""):
         timestamp = str(int(time.time() * 1000))
         access_token = self.token_info.get("access_token", "")
-        
         content_sha256 = hashlib.sha256(body.encode('utf-8')).hexdigest()
         string_to_sign = f"{self.client_id}{access_token}{timestamp}{method}\n{content_sha256}\n\n{path}"
-        
-        sign = hmac.new(
-            self.client_secret.encode('utf-8'),
-            msg=string_to_sign.encode('utf-8'),
-            digestmod=hashlib.sha256
-        ).hexdigest().upper()
-
-        return {
-            "client_id": self.client_id,
-            "sign": sign,
-            "t": timestamp,
-            "sign_method": "HMAC-SHA256",
-            "access_token": access_token,
-            "Content-Type": "application/json"
-        }
+        sign = hmac.new(self.client_secret.encode('utf-8'), msg=string_to_sign.encode('utf-8'), digestmod=hashlib.sha256).hexdigest().upper()
+        return {"client_id": self.client_id, "sign": sign, "t": timestamp, "sign_method": "HMAC-SHA256", "access_token": access_token, "Content-Type": "application/json"}
 
     def _refresh_token(self):
         path = "/v1.0/token?grant_type=1"
         headers = self._get_headers(path, "GET")
         headers.pop("access_token")
-
         response = requests.get(f"{self.api_base_url}{path}", headers=headers)
         response.raise_for_status()
-        
         data = response.json()
-        if not data.get("success"):
-            raise Exception(f"Falha ao obter token: {data.get('msg')}")
-            
+        if not data.get("success"): raise Exception(f"Falha ao obter token: {data.get('msg')}")
         self.token_info = data["result"]
         self.token_info['expire_time'] = int(time.time()) + self.token_info.get('expire', 7200)
         return True
 
     def _api_request(self, method, path, body=None):
-        if not self.token_info or self.token_info.get("expire_time", 0) < int(time.time()) + 60:
-            self._refresh_token()
-
+        if not self.token_info or self.token_info.get("expire_time", 0) < int(time.time()) + 60: self._refresh_token()
         body_str = json.dumps(body) if body else ""
         headers = self._get_headers(path, method, body_str)
-        
         url = f"{self.api_base_url}{path}"
         print(f"--- DEBUG URL SENDING: {method} {url}")
-        
-        if method == "POST":
-            response = requests.post(url, headers=headers, data=body_str)
-        else:
-            response = requests.get(url, headers=headers)
-
+        response = requests.post(url, headers=headers, data=body_str) if method == "POST" else requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
-
+        print(f"--- DEBUG RAW RESPONSE FROM TUYA: {data}") # Log da resposta bruta
         if not data.get("success"):
             if data.get('code') == 1010:
                 self._refresh_token()
                 return self._api_request(method, path, body)
             raise Exception(f"Erro na API Tuya: {data.get('msg')} (código: {data.get('code')})")
-            
         return data.get("result")
 
     def create_temporary_password(self, name, start_time_str, end_time_str):
-        # Este é o endpoint correto que descobrimos no API Explorer
         path = f"/v2.0/cloud/thing/{self.device_id}/shadow/actions"
-
-        # Converte as datas para timestamp em segundos
         start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
         end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
         effective_time = int(start_dt.timestamp())
         invalid_time = int(end_dt.timestamp())
-
-        # Este é o formato correto do Body (corpo da requisição)
-actions_payload = {
-    "code": "temp_password_create",
-    "value": {
-        "name": name,
-        "password": "",  # <-- LINHA ADICIONADA
-        "effective_time": effective_time,
-        "invalid_time": invalid_time
-    }
-}
-
-
-        # O comando final é enviado dentro de um objeto "actions"
-        body_final = {
-            "actions": [actions_payload]
-        }
+        
+        actions_payload = {"code": "temp_password_create", "value": {"name": name, "password": "", "effective_time": effective_time, "invalid_time": invalid_time}}
+        body_final = {"actions": [actions_payload]}
         
         print(f"--- DEBUG: Enviando para {path} com o body: {json.dumps(body_final)}")
-
-        # Faz a chamada à API
         result = self._api_request("POST", path, body=body_final)
         
-        # A API da Tuya retorna o resultado da ação dentro de uma lista
-        action_result = result.get("actions", [])[0]
+        action_result = result.get("actions", [{}])[0]
 
         if action_result.get("success"):
-            # A senha gerada vem dentro do campo 'value' da resposta, que é uma string JSON
             value_str = action_result.get("value", "{}")
-            generated_password = json.loads(value_str).get("password")
-            return {
-                "password": generated_password,
-                "name": name,
-                "effective_time": datetime.fromtimestamp(effective_time).isoformat(),
-                "invalid_time": datetime.fromtimestamp(invalid_time).isoformat()
-            }
+            # A resposta de sucesso para esta ação pode não conter a senha diretamente.
+            # O aplicativo Tuya recebe a senha. O sucesso aqui já é uma vitória.
+            # Vamos retornar um placeholder se a senha não estiver no 'value'.
+            generated_password = json.loads(value_str).get("password", "SENHA_CRIADA_VERIFIQUE_APP")
+            return {"password": generated_password, "name": name, "effective_time": datetime.fromtimestamp(effective_time).isoformat(), "invalid_time": datetime.fromtimestamp(invalid_time).isoformat()}
         else:
             error_msg = action_result.get("msg", "Erro desconhecido ao criar senha.")
             raise Exception(f"Falha na ação da Tuya: {error_msg}")
 
-# Verifica se as variáveis de ambiente essenciais foram carregadas
-if not all([CLIENT_ID, CLIENT_SECRET, DEVICE_ID]):
-    raise RuntimeError("As variáveis de ambiente TUYA_CLIENT_ID, TUYA_CLIENT_SECRET, e TUYA_DEVICE_ID não foram configuradas.")
-
+if not all([CLIENT_ID, CLIENT_SECRET, DEVICE_ID]): raise RuntimeError("As variáveis de ambiente não foram configuradas.")
 lock_manager = TuyaLockManager(CLIENT_ID, CLIENT_SECRET, DEVICE_ID, API_BASE_URL)
 
 @app.route("/v1/passwords/temporary", methods=["POST"])
@@ -159,27 +104,16 @@ def handle_create_password():
     print("--- ROTA /v1/passwords/temporary ACIONADA ---")
     data = request.get_json()
     if not data or "name" not in data or "start_time" not in data or "end_time" not in data:
-        print("--- ERRO: Payload inválido.")
-        return jsonify({"error": "Campos 'name', 'start_time' (YYYY-MM-DD HH:MM:SS) e 'end_time' (YYYY-MM-DD HH:MM:SS) são obrigatórios."}), 400
-
+        return jsonify({"error": "Campos obrigatórios ausentes."}), 400
     try:
-        name = data["name"]
-        start_time = data["start_time"]
-        end_time = data["end_time"]
-        
-        password_info = lock_manager.create_temporary_password(name, start_time, end_time)
-        
+        password_info = lock_manager.create_temporary_password(data["name"], data["start_time"], data["end_time"])
         print("--- SUCESSO: Senha criada.")
         return jsonify({"success": True, "data": password_info}), 201
-        
     except Exception as e:
         print(f"--- ERRO NA EXECUÇÃO: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/health", methods=["GET"])
-def health_check():
-    return jsonify({"status": "ok"}), 200
+def health_check(): return jsonify({"status": "ok"}), 200
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+if __name__ == "__main__": app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
