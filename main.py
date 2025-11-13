@@ -104,7 +104,7 @@ class TuyaLockManager:
 
     def create_temporary_password(self, name, start_time_str, end_time_str):
         # 1. Obter o ticket
-        path_ticket = f"/v1.0/devices/{self.device_id}/door-lock/password-ticket"
+        path_ticket = f"/v2.0/devices/{self.device_id}/door-lock/password-ticket"
         ticket_response = self._api_request("POST", path_ticket, body={})
         
         ticket_id = ticket_response["ticket_id"]
@@ -124,7 +124,7 @@ class TuyaLockManager:
             "ticket_id": ticket_id
         }
         
-        path_password = f"/v1.0/devices/{self.device_id}/door-lock/temporary-password"
+        path_password = f"/v2.0/devices/{self.device_id}/door-lock/temporary-password"
         
         result = self._api_request("POST", path_password, body=password_payload)
         
