@@ -7,7 +7,6 @@ import json
 from datetime import datetime, timezone
 
 import requests
-from Crypto.Cipher import AES
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import gunicorn
@@ -22,6 +21,9 @@ CLIENT_SECRET = os.getenv("TUYA_CLIENT_SECRET")
 DEVICE_ID = os.getenv("TUYA_DEVICE_ID")
 # Região do seu Data Center (Western America)
 API_BASE_URL = "https://openapi.tuyaus.com"
+
+# Força o Python a mostrar os prints imediatamente nos logs do Railway
+os.environ['PYTHONUNBUFFERED'] = '1'
 
 app = Flask(__name__ )
 
@@ -57,7 +59,6 @@ class TuyaLockManager:
 
     def _refresh_token(self):
         path = "/v1.0/token?grant_type=1"
-        # Para a chamada de token, o access_token está vazio
         headers = self._get_headers(path, "GET")
         headers.pop("access_token")
 
@@ -69,12 +70,10 @@ class TuyaLockManager:
             raise Exception(f"Falha ao obter token: {data.get('msg')}")
             
         self.token_info = data["result"]
-        # O token da Tuya expira em 7200 segundos (2 horas)
         self.token_info['expire_time'] = int(time.time()) + self.token_info.get('expire', 7200)
         return True
 
     def _api_request(self, method, path, body=None):
-        # Verifica se o token existe ou se está prestes a expirar
         if not self.token_info or self.token_info.get("expire_time", 0) < int(time.time()) + 60:
             self._refresh_token()
 
@@ -82,20 +81,17 @@ class TuyaLockManager:
         headers = self._get_headers(path, method, body_str)
         
         url = f"{self.api_base_url}{path}"
-        print(f"--- DEBUG URL SENDING: {method} {url}") # Garanta que esta linha exista
+        print(f"--- DEBUG URL SENDING: {method} {url}")
         
-        if method == "GET":
-            response = requests.get(url, headers=headers)
-        elif method == "POST":
+        if method == "POST":
             response = requests.post(url, headers=headers, data=body_str)
         else:
-            raise ValueError(f"Método HTTP não suportado: {method}")
+            response = requests.get(url, headers=headers)
 
         response.raise_for_status()
         data = response.json()
 
         if not data.get("success"):
-            # Se o token expirou, tenta renovar e refazer a chamada uma vez
             if data.get('code') == 1010:
                 self._refresh_token()
                 return self._api_request(method, path, body)
@@ -104,38 +100,51 @@ class TuyaLockManager:
         return data.get("result")
 
     def create_temporary_password(self, name, start_time_str, end_time_str):
-        # 1. Obter o ticket
-        path_ticket = f"/devices/{self.device_id}/door-lock/password-ticket"
-        ticket_response = self._api_request("POST", path_ticket, body={})
-        
-        ticket_id = ticket_response["ticket_id"]
-        
-        # 2. Criar a senha temporária
+        # Este é o endpoint correto que descobrimos no API Explorer
+        path = f"/v2.0/cloud/thing/{self.device_id}/shadow/actions"
+
+        # Converte as datas para timestamp em segundos
         start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
         end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
-        
         effective_time = int(start_dt.timestamp())
         invalid_time = int(end_dt.timestamp())
 
-        password_payload = {
-            "name": name,
-            "password_type": "temporary",
-            "effective_time": effective_time,
-            "invalid_time": invalid_time,
-            "ticket_id": ticket_id
+        # Este é o formato correto do Body (corpo da requisição)
+        actions_payload = {
+            "code": "temp_password_create",
+            "value": {
+                "name": name,
+                "effective_time": effective_time,
+                "invalid_time": invalid_time
+            }
+        }
+
+        # O comando final é enviado dentro de um objeto "actions"
+        body_final = {
+            "actions": [actions_payload]
         }
         
-        path_password = f"/devices/{self.device_id}/door-lock/temporary-password"
+        print(f"--- DEBUG: Enviando para {path} com o body: {json.dumps(body_final)}")
+
+        # Faz a chamada à API
+        result = self._api_request("POST", path, body=body_final)
         
-        result = self._api_request("POST", path_password, body=password_payload)
-        
-        return {
-            "id": result["id"],
-            "password": result["password"],
-            "name": name,
-            "effective_time": datetime.fromtimestamp(effective_time).isoformat(),
-            "invalid_time": datetime.fromtimestamp(invalid_time).isoformat()
-        }
+        # A API da Tuya retorna o resultado da ação dentro de uma lista
+        action_result = result.get("actions", [])[0]
+
+        if action_result.get("success"):
+            # A senha gerada vem dentro do campo 'value' da resposta, que é uma string JSON
+            value_str = action_result.get("value", "{}")
+            generated_password = json.loads(value_str).get("password")
+            return {
+                "password": generated_password,
+                "name": name,
+                "effective_time": datetime.fromtimestamp(effective_time).isoformat(),
+                "invalid_time": datetime.fromtimestamp(invalid_time).isoformat()
+            }
+        else:
+            error_msg = action_result.get("msg", "Erro desconhecido ao criar senha.")
+            raise Exception(f"Falha na ação da Tuya: {error_msg}")
 
 # Verifica se as variáveis de ambiente essenciais foram carregadas
 if not all([CLIENT_ID, CLIENT_SECRET, DEVICE_ID]):
@@ -144,12 +153,11 @@ if not all([CLIENT_ID, CLIENT_SECRET, DEVICE_ID]):
 lock_manager = TuyaLockManager(CLIENT_ID, CLIENT_SECRET, DEVICE_ID, API_BASE_URL)
 
 @app.route("/v1/passwords/temporary", methods=["POST"])
-@app.route("/v1/passwords/temporary", methods=["POST"])
 def handle_create_password():
-    app.logger.info("--- ROTA /v1/passwords/temporary ACIONADA ---") # LINHA NOVA
+    print("--- ROTA /v1/passwords/temporary ACIONADA ---")
     data = request.get_json()
     if not data or "name" not in data or "start_time" not in data or "end_time" not in data:
-        app.logger.error("--- ERRO: Payload inválido.") # LINHA NOVA
+        print("--- ERRO: Payload inválido.")
         return jsonify({"error": "Campos 'name', 'start_time' (YYYY-MM-DD HH:MM:SS) e 'end_time' (YYYY-MM-DD HH:MM:SS) são obrigatórios."}), 400
 
     try:
@@ -159,18 +167,11 @@ def handle_create_password():
         
         password_info = lock_manager.create_temporary_password(name, start_time, end_time)
         
-        app.logger.info("--- SUCESSO: Senha criada.") # LINHA NOVA
+        print("--- SUCESSO: Senha criada.")
         return jsonify({"success": True, "data": password_info}), 201
         
     except Exception as e:
-        app.logger.error(f"--- ERRO NA EXECUÇÃO: {e}") # LINHA NOVA
-        return jsonify({"success": False, "error": str(e)}), 500
-        
-       
-        
-    except Exception as e:
-        # Log do erro para depuração no Railway
-        print(f"Ocorreu um erro: {e}")
+        print(f"--- ERRO NA EXECUÇÃO: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/health", methods=["GET"])
