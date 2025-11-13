@@ -82,7 +82,7 @@ class TuyaLockManager:
         headers = self._get_headers(path, method, body_str)
         
         url = f"{self.api_base_url}{path}"
-        print(f"--- DEBUG: Tentando acessar a URL: {method} {url}")
+        app.logger.info(f"--- URL SENDING: {method} {url}")
         
         if method == "GET":
             response = requests.get(url, headers=headers)
@@ -144,9 +144,12 @@ if not all([CLIENT_ID, CLIENT_SECRET, DEVICE_ID]):
 lock_manager = TuyaLockManager(CLIENT_ID, CLIENT_SECRET, DEVICE_ID, API_BASE_URL)
 
 @app.route("/v1/passwords/temporary", methods=["POST"])
+@app.route("/v1/passwords/temporary", methods=["POST"])
 def handle_create_password():
+    app.logger.info("--- ROTA /v1/passwords/temporary ACIONADA ---") # LINHA NOVA
     data = request.get_json()
     if not data or "name" not in data or "start_time" not in data or "end_time" not in data:
+        app.logger.error("--- ERRO: Payload inválido.") # LINHA NOVA
         return jsonify({"error": "Campos 'name', 'start_time' (YYYY-MM-DD HH:MM:SS) e 'end_time' (YYYY-MM-DD HH:MM:SS) são obrigatórios."}), 400
 
     try:
@@ -156,7 +159,14 @@ def handle_create_password():
         
         password_info = lock_manager.create_temporary_password(name, start_time, end_time)
         
+        app.logger.info("--- SUCESSO: Senha criada.") # LINHA NOVA
         return jsonify({"success": True, "data": password_info}), 201
+        
+    except Exception as e:
+        app.logger.error(f"--- ERRO NA EXECUÇÃO: {e}") # LINHA NOVA
+        return jsonify({"success": False, "error": str(e)}), 500
+        
+       
         
     except Exception as e:
         # Log do erro para depuração no Railway
