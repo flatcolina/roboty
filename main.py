@@ -62,7 +62,7 @@ class TuyaLockManager:
         response = requests.post(url, headers=headers, data=body_str) if method == "POST" else requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
-        print(f"--- DEBUG RAW RESPONSE FROM TUYA: {data}") # Log da resposta bruta
+        print(f"--- DEBUG RAW RESPONSE FROM TUYA: {data}")
         if not data.get("success"):
             if data.get('code') == 1010:
                 self._refresh_token()
@@ -77,7 +77,17 @@ class TuyaLockManager:
         effective_time = int(start_dt.timestamp())
         invalid_time = int(end_dt.timestamp())
         
-        actions_payload = {"code": "temp_password_create", "value": {"name": name, "password": "", "effective_time": effective_time, "invalid_time": invalid_time}}
+        # CORREÇÃO APLICADA AQUI: password é "0"
+        actions_payload = {
+            "code": "temp_password_create",
+            "value": {
+                "name": name,
+                "password": "0", 
+                "effective_time": effective_time,
+                "invalid_time": invalid_time
+            }
+        }
+        
         body_final = {"actions": [actions_payload]}
         
         print(f"--- DEBUG: Enviando para {path} com o body: {json.dumps(body_final)}")
@@ -87,9 +97,6 @@ class TuyaLockManager:
 
         if action_result.get("success"):
             value_str = action_result.get("value", "{}")
-            # A resposta de sucesso para esta ação pode não conter a senha diretamente.
-            # O aplicativo Tuya recebe a senha. O sucesso aqui já é uma vitória.
-            # Vamos retornar um placeholder se a senha não estiver no 'value'.
             generated_password = json.loads(value_str).get("password", "SENHA_CRIADA_VERIFIQUE_APP")
             return {"password": generated_password, "name": name, "effective_time": datetime.fromtimestamp(effective_time).isoformat(), "invalid_time": datetime.fromtimestamp(invalid_time).isoformat()}
         else:
