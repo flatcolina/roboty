@@ -110,14 +110,16 @@ class TuyaLockManager:
         invalid_time = int(end_dt.timestamp())
 
         # Este é o formato correto do Body (corpo da requisição)
-        actions_payload = {
-            "code": "temp_password_create",
-            "value": {
-                "name": name,
-                "effective_time": effective_time,
-                "invalid_time": invalid_time
-            }
-        }
+actions_payload = {
+    "code": "temp_password_create",
+    "value": {
+        "name": name,
+        "password": "",  # <-- LINHA ADICIONADA
+        "effective_time": effective_time,
+        "invalid_time": invalid_time
+    }
+}
+
 
         # O comando final é enviado dentro de um objeto "actions"
         body_final = {
