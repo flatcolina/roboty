@@ -82,7 +82,7 @@ class TuyaLockManager:
         headers = self._get_headers(path, method, body_str)
         
         url = f"{self.api_base_url}{path}"
-        app.logger.info(f"--- URL SENDING: {method} {url}")
+        print(f"--- DEBUG URL SENDING: {method} {url}") # Garanta que esta linha exista
         
         if method == "GET":
             response = requests.get(url, headers=headers)
