@@ -72,32 +72,29 @@ class TuyaLockManager:
         return data.get("result")
 
     def create_temporary_password(self, name, start_time_str, end_time_str):
-        # Endpoint correto para o "Advanced Protocol", como você descobriu
         path = f"/v1.0/devices/{self.device_id}/commands"
         
         password = str(random.randint(100000, 999999))
-        # IDs de usuário para senhas temporárias geralmente são altos
-        user_id = random.randint(2000, 4000)
+        # user_id no range recomendado por você para senhas temporárias
+        user_id = random.randint(2000, 2999)
 
-        # Converte as datas para timestamp UNIX em segundos
         start_ts = int(datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S").timestamp())
         end_ts = int(datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S").timestamp())
 
-        # Monta o 'value' exatamente como na sua descoberta
         command_value = {
             "user_id": user_id,
             "password": password,
-            "type": 2,  # 2 = temporária
-            "operation": 1,  # 1 = criar
+            "type": 2,
+            "operation": 1,
             "start_time": start_ts,
             "end_time": end_ts
         }
 
-        # Monta o 'body' final com o 'code' correto
         body_final = {
             "commands": [
                 {
-                    "code": "door_lock_password",
+                    # A CORREÇÃO FINAL, BASEADA NA SUA DESCOBERTA
+                    "code": "door_lock_data",
                     "value": command_value
                 }
             ]
@@ -106,7 +103,6 @@ class TuyaLockManager:
         print(f"--- DEBUG: Enviando para {path} com o body: {json.dumps(body_final)}")
         result = self._api_request("POST", path, body=body_final)
         
-        # A resposta de sucesso para este endpoint é simplesmente 'True'
         if result is True:
             return {"password": password, "user_id": user_id, "name": name, "start_time": start_time_str, "end_time": end_time_str}
         else:
