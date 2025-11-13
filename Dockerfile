@@ -16,6 +16,8 @@ COPY . .
 # Defina a variável de ambiente para a porta que o Railway espera
 ENV PORT 8080
 
+ENV PYTHONUNBUFFERED=1
+
 # Exponha a porta que o aplicativo irá rodar
 EXPOSE 8080
 
