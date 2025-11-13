@@ -82,7 +82,7 @@ class TuyaLockManager:
             "code": "temp_password_create",
             "value": {
                 "name": name,
-                "password": "0", 
+                "password": "", 
                 "effective_time": effective_time,
                 "invalid_time": invalid_time
             }
