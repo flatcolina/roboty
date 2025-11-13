@@ -72,31 +72,30 @@ class TuyaLockManager:
         return data.get("result")
 
     def create_temporary_password(self, name, start_time_str, end_time_str):
-        # Endpoint correto para modificar DPs (propriedades)
         path = f"/v2.0/cloud/thing/{self.device_id}/shadow/properties/issue"
         
-        # Gerar uma senha aleatória de 6 dígitos
         password = str(random.randint(100000, 999999))
-        # Gerar um ID de usuário aleatório entre 101 e 200 (faixa comum para temporários)
         user_id = random.randint(101, 200)
 
-        # Formato do DP 11 que você encontrou!
         dp11_value = {
             "op": "add",
             "id": user_id,
             "code": password,
             "name": name,
             "validity": {
-                "start_time": start_time_str.replace(" ", "T"), # Formato ISO 8601
+                "start_time": start_time_str.replace(" ", "T"),
                 "end_time": end_time_str.replace(" ", "T")
             }
         }
 
-        # O body final envia o DP 11 com seu valor em formato JSON (string)
+        # CORREÇÃO FINAL: O formato correto é uma lista de objetos, não um dicionário
         body_final = {
-            "properties": {
-                "11": json.dumps(dp11_value)
-            }
+            "properties": [
+                {
+                    "dp_id": 11,
+                    "value": json.dumps(dp11_value)
+                }
+            ]
         }
         
         print(f"--- DEBUG: Enviando para {path} com o body: {json.dumps(body_final)}")
