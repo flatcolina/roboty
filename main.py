@@ -4,7 +4,7 @@ import hmac
 import hashlib
 import base64
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import random
 
 import requests
@@ -72,27 +72,33 @@ class TuyaLockManager:
         return data.get("result")
 
     def create_temporary_password(self, name, start_time_str, end_time_str):
-        path = f"/v2.0/cloud/thing/{self.device_id}/shadow/properties/issue"
+        # Endpoint correto para o "Advanced Protocol", como você descobriu
+        path = f"/v1.0/devices/{self.device_id}/commands"
         
         password = str(random.randint(100000, 999999))
-        user_id = random.randint(101, 200)
+        # IDs de usuário para senhas temporárias geralmente são altos
+        user_id = random.randint(2000, 4000)
 
-        # MUDANÇA: Usando 'valid_time' com a data de fim, como no exemplo que você encontrou.
-        end_time_iso = end_time_str.replace(" ", "T")
+        # Converte as datas para timestamp UNIX em segundos
+        start_ts = int(datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S").timestamp())
+        end_ts = int(datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S").timestamp())
 
-        dp11_value = {
-            "op": "add",
-            "id": user_id,
-            "code": password,
-            "name": name,
-            "valid_time": end_time_iso
+        # Monta o 'value' exatamente como na sua descoberta
+        command_value = {
+            "user_id": user_id,
+            "password": password,
+            "type": 2,  # 2 = temporária
+            "operation": 1,  # 1 = criar
+            "start_time": start_ts,
+            "end_time": end_ts
         }
 
+        # Monta o 'body' final com o 'code' correto
         body_final = {
-            "properties": [
+            "commands": [
                 {
-                    "dp_id": 11,
-                    "value": json.dumps(dp11_value)
+                    "code": "door_lock_password",
+                    "value": command_value
                 }
             ]
         }
@@ -100,10 +106,11 @@ class TuyaLockManager:
         print(f"--- DEBUG: Enviando para {path} com o body: {json.dumps(body_final)}")
         result = self._api_request("POST", path, body=body_final)
         
-        if result.get("success"):
-            return {"password": password, "user_id": user_id, "name": name, "valid_until": end_time_str}
+        # A resposta de sucesso para este endpoint é simplesmente 'True'
+        if result is True:
+            return {"password": password, "user_id": user_id, "name": name, "start_time": start_time_str, "end_time": end_time_str}
         else:
-            raise Exception(f"Falha ao emitir propriedade: {result}")
+            raise Exception(f"Falha ao emitir comando: {result}")
 
 if not all([CLIENT_ID, CLIENT_SECRET, DEVICE_ID]): raise RuntimeError("As variáveis de ambiente não foram configuradas.")
 lock_manager = TuyaLockManager(CLIENT_ID, CLIENT_SECRET, DEVICE_ID, API_BASE_URL)
