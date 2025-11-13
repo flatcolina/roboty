@@ -4,7 +4,7 @@ import hmac
 import hashlib
 import base64
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import random
 
 import requests
@@ -77,18 +77,17 @@ class TuyaLockManager:
         password = str(random.randint(100000, 999999))
         user_id = random.randint(101, 200)
 
+        # MUDANÇA: Usando 'valid_time' com a data de fim, como no exemplo que você encontrou.
+        end_time_iso = end_time_str.replace(" ", "T")
+
         dp11_value = {
             "op": "add",
             "id": user_id,
             "code": password,
             "name": name,
-            "validity": {
-                "start_time": start_time_str.replace(" ", "T"),
-                "end_time": end_time_str.replace(" ", "T")
-            }
+            "valid_time": end_time_iso
         }
 
-        # CORREÇÃO FINAL: O formato correto é uma lista de objetos, não um dicionário
         body_final = {
             "properties": [
                 {
@@ -102,7 +101,7 @@ class TuyaLockManager:
         result = self._api_request("POST", path, body=body_final)
         
         if result.get("success"):
-            return {"password": password, "user_id": user_id, "name": name, "start_time": start_time_str, "end_time": end_time_str}
+            return {"password": password, "user_id": user_id, "name": name, "valid_until": end_time_str}
         else:
             raise Exception(f"Falha ao emitir propriedade: {result}")
 
