@@ -72,26 +72,15 @@ class TuyaLockManager:
         return data.get("result")
 
     def create_temporary_password(self, name, start_time_str, end_time_str):
-        # Endpoint para enviar comandos, como confirmado pela sua pesquisa
         path = f"/v1.0/devices/{self.device_id}/commands"
         
         password = str(random.randint(100000, 999999))
         
-        # Converte as datas para timestamp UNIX
-        start_ts = int(datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S").timestamp())
-        end_ts = int(datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S").timestamp())
-
-        # Formato "Raw" para o 'code' "unlock_method_create"
-        # Estrutura: tipo_senha,senha,timestamp_inicio_hex,timestamp_fim_hex,nome_codificado_hex
-        # tipo_senha: 2 para temporária
-        start_ts_hex = hex(start_ts)[2:]
-        end_ts_hex = hex(end_ts)[2:]
-        name_hex = name.encode('utf-8').hex()
+        # MUDANÇA RADICAL: Vamos tentar criar uma senha PERMANENTE e simples
+        # tipo_senha: 1 para permanente
+        # Formato: tipo_senha,senha
+        raw_value = f"1,{password}"
         
-        # Monta a string Raw
-        raw_value = f"2,{password},{start_ts_hex},{end_ts_hex},{name_hex}"
-        
-        # Monta o 'body' final com o 'code' correto da especificação
         body_final = {
             "commands": [
                 {
@@ -105,7 +94,7 @@ class TuyaLockManager:
         result = self._api_request("POST", path, body=body_final)
         
         if result is True:
-            return {"password": password, "name": name, "start_time": start_time_str, "end_time": end_time_str}
+            return {"password": password, "name": "TESTE_PERMANENTE", "type": "permanente"}
         else:
             raise Exception(f"Falha ao emitir comando: {result}")
 
