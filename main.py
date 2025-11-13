@@ -5,6 +5,7 @@ import hashlib
 import base64
 import json
 from datetime import datetime, timezone
+import random
 
 import requests
 from flask import Flask, request, jsonify
@@ -71,38 +72,40 @@ class TuyaLockManager:
         return data.get("result")
 
     def create_temporary_password(self, name, start_time_str, end_time_str):
-        path = f"/v2.0/cloud/thing/{self.device_id}/shadow/actions"
+        # Endpoint correto para modificar DPs (propriedades)
+        path = f"/v2.0/cloud/thing/{self.device_id}/shadow/properties/issue"
         
         # Gerar uma senha aleatória de 6 dígitos
-        password = str(time.time())[-6:]
+        password = str(random.randint(100000, 999999))
+        # Gerar um ID de usuário aleatório entre 101 e 200 (faixa comum para temporários)
+        user_id = random.randint(101, 200)
 
-        # Formato "Raw" para unlock_method_create
-        # Formato: tipo_senha,senha,timestamp_inicio_hex,timestamp_fim_hex,nome_codificado_hex
-        # tipo_senha: 2 para temporária
-        start_ts_hex = hex(int(datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S").timestamp()))[2:]
-        end_ts_hex = hex(int(datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S").timestamp()))[2:]
-        name_hex = name.encode('utf-8').hex()
-        
-        # O formato Raw é uma string de valores separados por vírgula
-        raw_value = f"2,{password},{start_ts_hex},{end_ts_hex},{name_hex}"
-        
-        actions_payload = {
-            "code": "unlock_method_create",
-            "value": raw_value
+        # Formato do DP 11 que você encontrou!
+        dp11_value = {
+            "op": "add",
+            "id": user_id,
+            "code": password,
+            "name": name,
+            "validity": {
+                "start_time": start_time_str.replace(" ", "T"), # Formato ISO 8601
+                "end_time": end_time_str.replace(" ", "T")
+            }
         }
-        
-        body_final = {"actions": [actions_payload]}
+
+        # O body final envia o DP 11 com seu valor em formato JSON (string)
+        body_final = {
+            "properties": {
+                "11": json.dumps(dp11_value)
+            }
+        }
         
         print(f"--- DEBUG: Enviando para {path} com o body: {json.dumps(body_final)}")
         result = self._api_request("POST", path, body=body_final)
         
-        action_result = result.get("actions", [{}])[0]
-
-        if action_result.get("success"):
-            return {"password": password, "name": name, "start_time": start_time_str, "end_time": end_time_str}
+        if result.get("success"):
+            return {"password": password, "user_id": user_id, "name": name, "start_time": start_time_str, "end_time": end_time_str}
         else:
-            error_msg = action_result.get("msg", "Erro desconhecido ao criar senha.")
-            raise Exception(f"Falha na ação da Tuya: {error_msg}")
+            raise Exception(f"Falha ao emitir propriedade: {result}")
 
 if not all([CLIENT_ID, CLIENT_SECRET, DEVICE_ID]): raise RuntimeError("As variáveis de ambiente não foram configuradas.")
 lock_manager = TuyaLockManager(CLIENT_ID, CLIENT_SECRET, DEVICE_ID, API_BASE_URL)
